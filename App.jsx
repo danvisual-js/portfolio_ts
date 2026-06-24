@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+
 
 /* ============================================================
    PORTFOLIO DATA — edit this section to update content
@@ -1848,3 +1848,4 @@ function DPad({ onMove }) {
 // This connects your JSX logic directly to the HTML container
 const root = KinneyDom || ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);
+export default App; 
