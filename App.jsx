@@ -1457,7 +1457,7 @@ function CharacterSelect({ onSelect }) {
 const VIEWPORT_COLS = 16;
 const VIEWPORT_ROWS = 10;
 
-export default function PortfolioGame() {
+export default function App() {
   const [phase, setPhase] = useState("title"); // title -> select -> playing
   const [character, setCharacter] = useState(null);
   const [pos, setPos] = useState(START_POS);
@@ -1845,5 +1845,3 @@ function DPad({ onMove }) {
     </div>
   );
 }
-
-export default App; 
