@@ -1,4 +1,4 @@
-
+import { useState, useEffect, useCallback, useRef } from "react";
 
 /* ============================================================
    PORTFOLIO DATA — edit this section to update content
