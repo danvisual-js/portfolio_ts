@@ -1972,7 +1972,7 @@ export default function PortfolioGame() {
   const walkTimeout = useRef(null);
   const popupTimeout = useRef(null);
   const viewportRef = useRef(null);
-  const [viewportSize, setViewportSize] = useState({ w: 512, h: 320 });
+  const [viewportSize, setViewportSize] = useState({ w: window.innerWidth, h: window.innerHeight });
 
   // Zone-level navigation state — lives here so Modal props can reference it
   // without any secondary keydown listeners competing with Modal's own handler.
@@ -1991,20 +1991,17 @@ export default function PortfolioGame() {
 
   const anyModalOpen = !!(activeZone || selectedProject || activeNpc || menuOpen);
 
-  // Measure the actual rendered viewport so the camera can clamp correctly
-  // against real pixel dimensions instead of a fixed tile count — this is
-  // what prevents blank space from showing past the map edges.
+  // Track the window size — this is what drives tileScale.
+  // We use window dimensions rather than the viewport div so the scale is
+  // correct even before the game viewport div mounts (title/select screens).
+  // The viewport div's measured size is kept separately only for camera clamping.
   useEffect(() => {
-    if (phase !== "playing" || !viewportRef.current) return;
-    const el = viewportRef.current;
-    function measure() {
-      setViewportSize({ w: el.clientWidth, h: el.clientHeight });
+    function onResize() {
+      setViewportSize({ w: window.innerWidth, h: window.innerHeight });
     }
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [phase]);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const nearestBuilding = useCallback((p) => {
     for (const b of BUILDINGS) {
@@ -2213,24 +2210,41 @@ export default function PortfolioGame() {
     );
   }
 
-  // tileScale: shrink or grow the world to fill the viewport.
-  // We use the smaller of width-fit vs height-fit so the whole world
-  // stays visible in both axes (like object-fit: cover but for tiles).
-  // On mobile portrait a 390px wide screen needs scale ≈ 0.68 for 36-tile width.
-  // On a 1440px desktop it needs scale ≈ 2.5 — but we cap at 2 so the
-  // art doesn't get too chunky on large monitors.
-  const nativeWorldW = COLS * TILE;
-  const nativeWorldH = ROWS * TILE;
+  // Separate state for the game viewport div's actual pixel size.
+  // Used for camera clamping — needs to be the div dimensions, not window,
+  // since the HUD and padding reduce the available game area.
+  const [vpDivSize, setVpDivSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    if (phase !== "playing" || !viewportRef.current) return;
+    const el = viewportRef.current;
+    function measure() { setVpDivSize({ w: el.clientWidth, h: el.clientHeight }); }
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [phase]);
+
+  // tileScale: target a readable tile pixel size on every screen.
+  // We don't try to fit the whole 36×24 world at once — the camera scrolls it.
+  // Instead, make tiles as large as they can be while still showing at least
+  // 8 columns and 5 rows (enough to see a building + surroundings at all times).
+  // Clamped to [18px, 56px] per tile so sprites stay legible on tiny and large screens.
+  const MIN_TILE_PX = 18;
+  const MAX_TILE_PX = 56;
+  const MIN_COLS_VISIBLE = 8;
+  const MIN_ROWS_VISIBLE = 5;
+  const vpW = vpDivSize.w > 0 ? vpDivSize.w : Math.max(1, viewportSize.w - 16);
+  const vpH = vpDivSize.h > 0 ? vpDivSize.h : Math.max(1, viewportSize.h - 54);
+  const scaleForCols = vpW / (TILE * MIN_COLS_VISIBLE);
+  const scaleForRows = vpH / (TILE * MIN_ROWS_VISIBLE);
   const tileScale = Math.min(
-    2,
-    viewportSize.w > 0 ? viewportSize.w / nativeWorldW : 1,
-    viewportSize.h > 0 ? viewportSize.h / nativeWorldH : 1
+    MAX_TILE_PX / TILE,
+    Math.max(MIN_TILE_PX / TILE, Math.min(scaleForCols, scaleForRows))
   );
 
-  // Camera in tile units — compute how many tiles fit in the actual *scaled*
-  // viewport so the camera clamp is correct.
-  const viewportColsActual = viewportSize.w / (TILE * tileScale);
-  const viewportRowsActual = viewportSize.h / (TILE * tileScale);
+  // Camera: how many tiles fit in the scaled viewport.
+  const viewportColsActual = vpW / (TILE * tileScale);
+  const viewportRowsActual = vpH / (TILE * tileScale);
   const rangeX = COLS - viewportColsActual;
   const rangeY = ROWS - viewportRowsActual;
   const camX = rangeX <= 0 ? rangeX / 2 : Math.max(0, Math.min(rangeX, pos.x + 0.5 - viewportColsActual / 2));
@@ -2287,10 +2301,11 @@ export default function PortfolioGame() {
           background: "#5fa050",
         }}
       >
-        {/* World container: renders at native tile resolution then scaled down/up
-            to exactly fill the viewport. This keeps pixel art crisp at every size
-            and means all the tile/building/sprite pixel coordinates stay identical
-            across desktop and mobile — only the CSS scale changes. */}
+        {/* World container: zoom scales the entire layout subtree so all the
+            absolute pixel positions (left, top, width, height) work correctly
+            at any screen size. Unlike transform:scale, zoom doesn't detach the
+            element from normal layout flow, so overflow:hidden on the parent
+            clips at exactly the right pixel boundary on every screen. */}
         <div
           style={{
             position: "absolute",
@@ -2299,8 +2314,7 @@ export default function PortfolioGame() {
             width: COLS * TILE,
             height: ROWS * TILE,
             transition: "left 0.12s linear, top 0.12s linear",
-            transformOrigin: "top left",
-            transform: `scale(${tileScale})`,
+            zoom: tileScale,
           }}
         >
           <Ground />
